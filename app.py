@@ -20,30 +20,37 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Cards */
+    /* Cards — dark mode friendly */
     div[data-testid="stMetric"] {
-        background: #f8f9fb;
-        border: 1px solid #e2e6ea;
+        background: #1e1e2e;
+        border: 1px solid #3a3a5c;
         border-radius: 12px;
         padding: 16px 20px;
     }
     div[data-testid="stMetric"] label {
         font-size: 0.85rem;
-        color: #555;
+        color: #a0a0b8 !important;
     }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
         font-size: 1.8rem;
         font-weight: 700;
+        color: #ffffff !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
+        color: #8be9fd !important;
     }
     /* Section headers */
     .section-header {
         font-size: 1.1rem;
         font-weight: 600;
-        color: #333;
+        color: #e0e0ef;
         border-bottom: 2px solid #5B6ABF;
         padding-bottom: 4px;
         margin-top: 1.5rem;
         margin-bottom: 0.8rem;
+    }
+    .section-header a {
+        color: #8be9fd;
     }
     /* Hide default Streamlit footer */
     footer {visibility: hidden;}
