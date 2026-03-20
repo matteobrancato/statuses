@@ -1,17 +1,13 @@
 """No-Regression Test Status Dashboard — Streamlit app."""
 
-import os
 import streamlit as st
 import plotly.graph_objects as go
-from dotenv import load_dotenv
 
 from testrail_client import (
     TestRailClient,
     fetch_from_link,
     STATUS_MAP,
 )
-
-load_dotenv()
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -60,7 +56,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Sidebar — credentials & links ───────────────────────────────────────────
+# ── Read credentials from Streamlit secrets ──────────────────────────────────
+tr_url = st.secrets["testrail"]["url"]
+tr_user = st.secrets["testrail"]["user"]
+tr_key = st.secrets["testrail"]["api_key"]
+
+# ── Sidebar — links ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.image(
         "https://img.icons8.com/fluency/96/test-passed.png",
@@ -68,24 +69,6 @@ with st.sidebar:
     )
     st.title("QA Dashboard")
     st.caption("Real-time No-Regression status from TestRail")
-
-    st.markdown("---")
-    st.subheader("TestRail Credentials")
-
-    tr_url = st.text_input(
-        "TestRail URL",
-        value=os.getenv("TESTRAIL_URL", ""),
-        placeholder="https://yourinstance.testrail.io",
-    )
-    tr_user = st.text_input(
-        "Email",
-        value=os.getenv("TESTRAIL_USER", ""),
-    )
-    tr_key = st.text_input(
-        "API Key",
-        value=os.getenv("TESTRAIL_API_KEY", ""),
-        type="password",
-    )
 
     st.markdown("---")
     st.subheader("Test Run / Plan Links")
@@ -320,9 +303,6 @@ def render_comparison(data1: dict, data2: dict):
 st.markdown("## 🧪 No-Regression Test Status Dashboard")
 
 if fetch_btn:
-    if not all([tr_url, tr_user, tr_key]):
-        st.error("Please fill in all TestRail credentials in the sidebar.")
-        st.stop()
     if not link_1:
         st.warning("Please provide at least one TestRail run/plan link.")
         st.stop()
@@ -346,7 +326,7 @@ data1 = st.session_state.get("data1")
 data2 = st.session_state.get("data2")
 
 if data1 is None:
-    st.info("👈 Enter your TestRail credentials and at least one run/plan link in the sidebar, then click **Fetch Status**.")
+    st.info("👈 Enter at least one TestRail run/plan link in the sidebar, then click **Fetch Status**.")
 else:
     if data2:
         tab1, tab2, tab3 = st.tabs(["📋 Run 1", "📋 Run 2", "📊 Comparison"])
