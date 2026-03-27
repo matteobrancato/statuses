@@ -13,6 +13,12 @@ from config.settings import get_status_map, load_config
 from main import get_regression_dashboard, fetch_from_link
 from models.types import PlanData, RunData
 
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_dashboard(bu: str, url: str, user: str, key: str) -> dict:
+    """Cache dashboard results for 1 hour (baseline rarely changes)."""
+    return get_regression_dashboard(bu, url, user, key)
+
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="QA Dashboard — No Regression",

@@ -1,9 +1,13 @@
-"""Regression service — fetches plans/runs, detects regressions, aggregates data."""
+"""Regression service — fetches plans/runs, detects regressions, aggregates data.
+
+PERFORMANCE: Uses run-level summary counts from TestRail's plan/run response
+(passed_count, failed_count, etc.) instead of fetching all individual tests.
+This eliminates N+1 API calls and makes loading 10-100x faster.
+"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from config.settings import get_status_map
 from models.types import RunData, StatusCounts, PlanData
@@ -11,7 +15,6 @@ from services.run_parser import (
     parse_run_name,
     build_display_name,
     plan_belongs_to_bu,
-    run_belongs_to_bu,
     is_regression_plan,
     is_smoke_plan,
 )
@@ -22,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 
 def _all_bu_codes() -> list[str]:
-    """Return all BU codes from config (cached internally)."""
     from config.settings import load_config
     cfg = load_config()
     return [
@@ -32,10 +34,47 @@ def _all_bu_codes() -> list[str]:
     ]
 
 
-# ── Status counting ─────────────────────────────────────────────────────────
+# ── Status counting from run summary fields ──────────────────────────────────
 
-def _count_statuses(tests: list[dict]) -> StatusCounts:
-    """Tally test statuses into a StatusCounts object."""
+def _counts_from_run_summary(run_raw: dict) -> StatusCounts:
+    """Build StatusCounts from TestRail's run-level summary counts.
+
+    TestRail returns these fields directly in run objects:
+    passed_count, failed_count, blocked_count, retest_count, untested_count,
+    custom_status1_count, custom_status2_count, etc.
+
+    This avoids fetching individual tests entirely.
+    """
+    passed = run_raw.get("passed_count", 0) or 0
+    failed = run_raw.get("failed_count", 0) or 0
+    blocked = run_raw.get("blocked_count", 0) or 0
+    retest = run_raw.get("retest_count", 0) or 0
+    untested = run_raw.get("untested_count", 0) or 0
+
+    # Collect custom statuses
+    smap = get_status_map()
+    custom: dict[str, int] = {}
+    for i in range(1, 20):
+        key = f"custom_status{i}_count"
+        count = run_raw.get(key, 0) or 0
+        if count > 0:
+            # Try to map to a label from our status map
+            status_id = str(i + 5)  # custom_status1 = status_id 6, etc.
+            label = smap.get(status_id, {}).get("label", f"Custom {i}")
+            custom[label] = custom.get(label, 0) + count
+
+    return StatusCounts(
+        passed=passed,
+        failed=failed,
+        blocked=blocked,
+        retest=retest,
+        untested=untested,
+        custom=custom,
+    )
+
+
+def _counts_from_tests(tests: list[dict]) -> StatusCounts:
+    """Fallback: count statuses from individual test objects."""
     smap = get_status_map()
     counts = StatusCounts()
 
@@ -59,7 +98,7 @@ def _count_statuses(tests: list[dict]) -> StatusCounts:
     return counts
 
 
-# ── Single run fetching ─────────────────────────────────────────────────────
+# ── Single run fetching (only used for manual link mode) ─────────────────────
 
 def fetch_run(
     client: TestRailClient,
@@ -68,13 +107,18 @@ def fetch_run(
     bu_code: str = "",
     known_countries: list[str] | None = None,
 ) -> RunData:
-    """Fetch a single run and compute its status counts."""
+    """Fetch a single run. Uses summary counts if available, else fetches tests."""
     raw = client.get_run(run_id)
-    tests = client.get_tests(run_id)
-    counts = _count_statuses(tests)
-
     run_name = raw.get("name", "")
     config = raw.get("config", "") or ""
+
+    # Use summary counts if available (much faster)
+    if raw.get("passed_count") is not None:
+        counts = _counts_from_run_summary(raw)
+    else:
+        tests = client.get_tests(run_id)
+        counts = _counts_from_tests(tests)
+
     parsed = parse_run_name(run_name, bu_code, known_countries, config=config)
     display = build_display_name(run_name, config)
 
@@ -90,7 +134,7 @@ def fetch_run(
     )
 
 
-# ── Plan fetching ───────────────────────────────────────────────────────────
+# ── Plan fetching (uses summary counts — NO get_tests calls) ─────────────────
 
 def fetch_plan(
     client: TestRailClient,
@@ -99,10 +143,10 @@ def fetch_plan(
     bu_code: str = "",
     known_countries: list[str] | None = None,
 ) -> PlanData:
-    """Fetch a plan and all its runs, aggregating status counts.
+    """Fetch a plan and all its runs using summary counts.
 
-    Uses the run's `config` field (e.g. "France, Desktop") as primary source
-    for country/platform extraction.
+    This makes exactly ONE API call (get_plan) regardless of how many runs exist.
+    No get_tests calls needed.
     """
     raw = client.get_plan(plan_id)
     plan_name = raw.get("name", "")
@@ -117,13 +161,11 @@ def fetch_plan(
         for run_raw in entry.get("runs", []):
             run_name = run_raw.get("name", "") or entry_name
             config = run_raw.get("config", "") or ""
-
             rid = run_raw["id"]
-            tests = client.get_tests(rid)
-            counts = _count_statuses(tests)
-            parsed = parse_run_name(run_name, bu_code, known_countries, config=config)
 
-            # Build a clear display name using config
+            # Use summary counts from plan response — no extra API call
+            counts = _counts_from_run_summary(run_raw)
+            parsed = parse_run_name(run_name, bu_code, known_countries, config=config)
             display = build_display_name(entry_name or run_name, config)
 
             run = RunData(
@@ -158,25 +200,30 @@ def discover_plans_for_bu(
     smoke_keywords: list[str],
     lookback_days: int,
 ) -> list[dict]:
-    """Find recent plans that belong to a BU and match regression/smoke keywords."""
-    all_plans = client.get_plans(project_id)
+    """Find recent plans that belong to a BU.
+
+    Uses created_after filter to reduce API payload.
+    """
+    import time
+    created_after = int(time.time()) - (lookback_days * 86400)
+
+    all_plans = client.get_plans(project_id, created_after=created_after)
     matched: list[dict] = []
+
+    all_codes = _all_bu_codes()
 
     for plan in all_plans:
         name = plan.get("name", "")
 
-        # Filter by BU — but allow shared/umbrella plans
+        # Filter by BU
         bu_match = plan_belongs_to_bu(name, bu_code)
+        # Allow shared/umbrella plans (no other BU code in name)
         is_shared = not any(
-            f"[{code}]" in name.upper() or code in name.upper()
-            for code in _all_bu_codes()
+            code in name.upper()
+            for code in all_codes
             if code != bu_code.upper()
         )
         if not bu_match and not is_shared:
-            continue
-
-        # Must be recent
-        if not is_within_days(plan.get("created_on"), lookback_days):
             continue
 
         # Classify plan type
@@ -199,7 +246,7 @@ def discover_plans_for_bu(
 # ── Run aggregation ────────────────────────────────────────────────────────
 
 def aggregate_runs(runs: list[RunData]) -> dict:
-    """Group runs: country → platform → type → stats."""
+    """Group runs: country -> platform -> type -> stats."""
     grouped: dict = {}
 
     for run in runs:
@@ -247,5 +294,4 @@ def aggregate_runs(runs: list[RunData]) -> dict:
 # ── Regression detection ────────────────────────────────────────────────────
 
 def detect_active_regression(runs: list[RunData]) -> bool:
-    """A regression is active if at least one run is not completed."""
     return any(not r.is_completed for r in runs)

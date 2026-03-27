@@ -87,9 +87,12 @@ class TestRailClient:
         """Fetch a single test plan with its entries."""
         return self._get(f"get_plan/{plan_id}")
 
-    def get_plans(self, project_id: int) -> list[dict]:
-        """Fetch all test plans for a project."""
-        return self._get_paginated(f"get_plans/{project_id}")
+    def get_plans(self, project_id: int, created_after: int | None = None) -> list[dict]:
+        """Fetch test plans for a project, optionally filtered by creation date."""
+        params: dict[str, Any] = {}
+        if created_after is not None:
+            params["created_after"] = created_after
+        return self._get_paginated(f"get_plans/{project_id}", params=params)
 
     def get_run(self, run_id: int) -> dict:
         """Fetch a single test run."""
