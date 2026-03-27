@@ -38,6 +38,11 @@ def get_bu_config(business_unit: str) -> dict[str, Any]:
     return bus[business_unit]
 
 
+def get_bu_names() -> list[str]:
+    """Return list of all configured business unit names."""
+    return list(load_config().get("business_units", {}).keys())
+
+
 def get_status_map() -> dict[str, dict[str, str]]:
     """Return the status_id → label/color mapping."""
     return load_config().get("status_map", {})
@@ -48,9 +53,14 @@ def get_regression_keywords() -> list[str]:
     return load_config().get("regression_keywords", [])
 
 
+def get_smoke_keywords() -> list[str]:
+    """Return keywords used to identify smoke runs."""
+    return load_config().get("smoke_keywords", [])
+
+
 def get_lookback_days() -> int:
     """Return how many days back to consider for active regressions."""
-    return load_config().get("regression_lookback_days", 14)
+    return load_config().get("regression_lookback_days", 30)
 
 
 def get_automation_type_map() -> dict[str, str]:

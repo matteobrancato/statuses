@@ -1,20 +1,94 @@
 {
   "business_units": {
-    "TPSGB": {
-      "project_id": 12,
-      "suite_id": 101,
-      "countries": ["UK"],
-      "platforms": ["desktop", "mobile"],
-      "regression_priorities": ["high", "highest"],
-      "run_name_patterns": {
-        "country": "\\[(.*?)\\]",
-        "platform": "(Desktop|Mobile)",
-        "type": "(Manual|Automated)"
-      }
+    "The Perfume Shop": {
+      "bu_code": "TPS",
+      "project_id": 22,
+      "suite_id": 11833,
+      "countries": {
+        "GB": "United Kingdom",
+        "IE": "Ireland"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "Drogas": {
+      "bu_code": "DRG",
+      "project_id": 22,
+      "suite_id": 16093,
+      "countries": {
+        "LV": "Latvia",
+        "LT": "Lithuania"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "Watsons": {
+      "bu_code": "WTR",
+      "project_id": 22,
+      "suite_id": 7544,
+      "countries": {
+        "TR": "Turkey"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "Superdrug": {
+      "bu_code": "SD",
+      "project_id": 5,
+      "suite_id": 71,
+      "countries": {
+        "GB": "United Kingdom"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "Savers": {
+      "bu_code": "SV",
+      "project_id": 5,
+      "suite_id": 71,
+      "countries": {
+        "GB": "United Kingdom"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "ICI Paris XL": {
+      "bu_code": "IPX",
+      "project_id": 16,
+      "suite_id": 30122,
+      "countries": {
+        "BE": "Belgium",
+        "NL": "Netherlands",
+        "LU": "Luxembourg"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "Kruidvat": {
+      "bu_code": "KVT",
+      "project_id": 11,
+      "suite_id": 115,
+      "countries": {
+        "BE": "Belgium",
+        "NL": "Netherlands",
+        "LU": "Luxembourg"
+      },
+      "platforms": ["desktop", "mobile"]
+    },
+    "Marionnaud": {
+      "bu_code": "MRN",
+      "project_id": 3,
+      "suite_id": 30784,
+      "countries": {
+        "FR": "France",
+        "IT": "Italy",
+        "AT": "Austria",
+        "CH": "Switzerland",
+        "RO": "Romania",
+        "HU": "Hungary",
+        "CZ": "Czech Republic",
+        "SK": "Slovakia"
+      },
+      "platforms": ["desktop", "mobile"]
     }
   },
-  "regression_keywords": ["Regression", "NR", "On Demand"],
-  "regression_lookback_days": 14,
+  "regression_keywords": ["Regression", "NR", "No Regression", "On Demand"],
+  "smoke_keywords": ["Smoke"],
+  "regression_lookback_days": 30,
   "status_map": {
     "1": {"label": "Passed", "color": "#4CAF50"},
     "2": {"label": "Blocked", "color": "#9C27B0"},
