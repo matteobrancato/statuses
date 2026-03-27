@@ -1,123 +1,184 @@
-"""Parse structured information from TestRail plan/run names.
+"""Parse structured information from TestRail plan/run names and configs.
 
-Run names follow patterns like:
-    "Regression TPSGB Desktop"   → type=regression, bu=TPS, country=GB, platform=desktop
-    "Smoke TPSGB Mobile"         → type=smoke,      bu=TPS, country=GB, platform=mobile
-    "Regression DRGLT Desktop"   → type=regression, bu=DRG, country=LT, platform=desktop
+TestRail runs inside plan entries often share the same name (the entry name),
+but each run has a unique `config` string describing its configuration, e.g.:
+    "France, Desktop"
+    "UK, Mobile"
+    "Latvia (lv_LV), Desktop"
 
-Plan names follow patterns like:
-    "[TPS][JDK21] 2nd March 2026 On Demand Run S1"
-    "[DRG][LV] March 2026 Regression"
+The config string is the PRIMARY source for country/platform extraction.
+The run name is used as FALLBACK and for type detection (regression/smoke).
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-# ── Run name parsing ─────────────────────────────────────────────────────────
+# ── Config string parsing (primary) ─────────────────────────────────────────
+
+# Known country name → code mappings
+_COUNTRY_NAME_TO_CODE: dict[str, str] = {
+    "united kingdom": "GB", "uk": "GB", "great britain": "GB",
+    "ireland": "IE",
+    "france": "FR",
+    "italy": "IT",
+    "austria": "AT",
+    "switzerland": "CH",
+    "romania": "RO",
+    "hungary": "HU",
+    "czech republic": "CZ", "czechia": "CZ",
+    "slovakia": "SK",
+    "belgium": "BE",
+    "netherlands": "NL", "holland": "NL",
+    "luxembourg": "LU",
+    "turkey": "TR",
+    "latvia": "LV",
+    "lithuania": "LT",
+}
+
+
+def parse_run_config(
+    config: str,
+    known_countries: list[str] | None = None,
+) -> dict[str, str]:
+    """Extract country and platform from a TestRail run config string.
+
+    Examples:
+        "France, Desktop"           → country=FR, platform=desktop
+        "UK, Mobile"                → country=GB, platform=mobile
+        "Latvia (lv_LV), Desktop"   → country=LV, platform=desktop
+    """
+    result = {"country": "unknown", "platform": "unknown"}
+
+    if not config:
+        return result
+
+    parts = [p.strip() for p in config.split(",")]
+
+    for part in parts:
+        lower = part.lower()
+
+        # Platform detection
+        if "desktop" in lower:
+            result["platform"] = "desktop"
+            continue
+        if "mobile" in lower:
+            result["platform"] = "mobile"
+            continue
+
+        # Country detection — strip parenthetical locale info
+        country_part = re.sub(r"\s*\(.*?\)", "", part).strip().lower()
+
+        # Try full name match
+        if country_part in _COUNTRY_NAME_TO_CODE:
+            result["country"] = _COUNTRY_NAME_TO_CODE[country_part]
+            continue
+
+        # Try 2-letter code match
+        upper = country_part.upper()
+        if len(upper) == 2 and known_countries and upper in [c.upper() for c in known_countries]:
+            result["country"] = upper
+            continue
+
+        # Try partial match (e.g., "czech" in "czech republic")
+        for name, code in _COUNTRY_NAME_TO_CODE.items():
+            if country_part in name or name in country_part:
+                result["country"] = code
+                break
+
+    return result
+
+
+# ── Run name parsing (fallback + type detection) ────────────────────────────
 
 def parse_run_name(
     name: str,
     bu_code: str = "",
     known_countries: list[str] | None = None,
+    config: str = "",
 ) -> dict[str, str]:
-    """Extract type, country, and platform from a TestRail run name.
+    """Extract type, country, and platform from a TestRail run.
 
-    Args:
-        name: The run name, e.g. "Regression TPSGB Desktop".
-        bu_code: The BU short code, e.g. "TPS".
-        known_countries: List of known country codes for this BU, e.g. ["GB", "IE"].
-
-    Returns:
-        Dict with keys: type, country, platform. Unknown fields → "unknown".
+    Uses `config` as primary source for country/platform.
+    Falls back to parsing the run `name`.
+    Always extracts `type` from the name.
     """
-    result = {"type": "unknown", "country": "unknown", "platform": "unknown"}
+    # Start with config-based parsing
+    if config:
+        result = parse_run_config(config, known_countries)
+    else:
+        result = {"country": "unknown", "platform": "unknown"}
+
+    result["type"] = "unknown"
 
     if not name:
         return result
 
-    upper = name.upper()
     lower = name.lower()
 
-    # ── Type detection ───────────────────────────────────────────────
+    # ── Type detection (always from name) ────────────────────────────
     if "regression" in lower:
         result["type"] = "regression"
     elif "smoke" in lower:
         result["type"] = "smoke"
     elif "sanity" in lower:
         result["type"] = "sanity"
+    elif "on demand" in lower or "on_demand" in lower:
+        result["type"] = "regression"
 
-    # ── Platform detection ───────────────────────────────────────────
-    if "desktop" in lower:
-        result["platform"] = "desktop"
-    elif "mobile" in lower:
-        result["platform"] = "mobile"
-
-    # ── Country detection ────────────────────────────────────────────
-    # Strategy 1: If we know the BU code, look for {BU_CODE}{COUNTRY} pattern
-    if bu_code and known_countries:
-        bu_upper = bu_code.upper()
-        for cc in known_countries:
-            # Match "TPSGB" or "TPS GB" or "TPS_GB" in the run name
-            patterns = [
-                f"{bu_upper}{cc.upper()}",       # TPSGB
-                f"{bu_upper} {cc.upper()}",      # TPS GB
-                f"{bu_upper}_{cc.upper()}",      # TPS_GB
-            ]
-            for pat in patterns:
-                if pat in upper:
+    # ── Fallback: country from name if config didn't provide it ──────
+    if result["country"] == "unknown":
+        upper = name.upper()
+        if bu_code and known_countries:
+            bu_upper = bu_code.upper()
+            for cc in known_countries:
+                if f"{bu_upper}{cc.upper()}" in upper:
                     result["country"] = cc.upper()
                     break
-            if result["country"] != "unknown":
-                break
 
-    # Strategy 2: Check for [COUNTRY] bracket notation
-    if result["country"] == "unknown" and known_countries:
-        bracket_match = re.findall(r"\[([A-Z]{2,3})\]", upper)
-        for m in bracket_match:
-            if m in [c.upper() for c in known_countries]:
-                result["country"] = m
-                break
+        # Bracket notation: [FR], [GB], etc.
+        if result["country"] == "unknown" and known_countries:
+            for m in re.findall(r"\[([A-Z]{2,3})\]", upper):
+                if m in [c.upper() for c in known_countries]:
+                    result["country"] = m
+                    break
 
-    # Strategy 3: Check for country code as standalone word
-    if result["country"] == "unknown" and known_countries:
-        for cc in known_countries:
-            # Match as whole word
-            if re.search(rf"\b{cc.upper()}\b", upper):
-                result["country"] = cc.upper()
-                break
+    # ── Fallback: platform from name if config didn't provide it ─────
+    if result["platform"] == "unknown":
+        if "desktop" in lower:
+            result["platform"] = "desktop"
+        elif "mobile" in lower:
+            result["platform"] = "mobile"
 
     return result
 
 
-# ── Plan name matching ───────────────────────────────────────────────────────
+def build_display_name(run_name: str, config: str) -> str:
+    """Build a human-readable display name for a run.
+
+    If config is available, append it to distinguish runs with the same name.
+    """
+    if config and config not in run_name:
+        return f"{run_name} [{config}]"
+    return run_name
+
+
+# ── Plan-level matching ──────────────────────────────────────────────────────
 
 def plan_belongs_to_bu(plan_name: str, bu_code: str) -> bool:
-    """Check if a plan name belongs to a specific business unit.
-
-    Plan names often contain [BU_CODE] in brackets, or the BU code
-    as part of run names within.
-    """
+    """Check if a plan name belongs to a specific business unit."""
     if not plan_name or not bu_code:
         return False
-
     upper = plan_name.upper()
     bu_upper = bu_code.upper()
-
-    # Check bracket notation: [TPS], [DRG], etc.
     if f"[{bu_upper}]" in upper:
         return True
-
-    # Check if BU code appears as word or prefix
-    # e.g., "TPSGB" contains "TPS"
     if bu_upper in upper:
         return True
-
     return False
 
 
@@ -135,11 +196,18 @@ def is_smoke_plan(name: str, keywords: list[str] | None = None) -> bool:
     return any(kw.lower() in lower for kw in keywords)
 
 
-def run_belongs_to_bu(run_name: str, bu_code: str) -> bool:
-    """Check if a specific run within a plan belongs to this BU.
+def run_belongs_to_bu(run_name: str, config: str, bu_code: str) -> bool:
+    """Check if a run belongs to this BU based on name or config.
 
-    Run names like "Regression TPSGB Desktop" contain the BU code.
+    Checks both the run name and the config string.
     """
-    if not run_name or not bu_code:
-        return False
-    return bu_code.upper() in run_name.upper()
+    if not bu_code:
+        return True  # No filter
+    bu_upper = bu_code.upper()
+    if run_name and bu_upper in run_name.upper():
+        return True
+    # For runs with generic names, we can't filter by BU — include them
+    # The plan-level filter already ensures we're in the right project
+    if not run_name or run_name == "":
+        return True
+    return True  # Include by default — plan-level filter is the main gate

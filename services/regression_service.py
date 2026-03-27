@@ -9,6 +9,7 @@ from config.settings import get_status_map
 from models.types import RunData, StatusCounts, PlanData
 from services.run_parser import (
     parse_run_name,
+    build_display_name,
     plan_belongs_to_bu,
     run_belongs_to_bu,
     is_regression_plan,
@@ -71,11 +72,15 @@ def fetch_run(
     raw = client.get_run(run_id)
     tests = client.get_tests(run_id)
     counts = _count_statuses(tests)
-    parsed = parse_run_name(raw.get("name", ""), bu_code, known_countries)
+
+    run_name = raw.get("name", "")
+    config = raw.get("config", "") or ""
+    parsed = parse_run_name(run_name, bu_code, known_countries, config=config)
+    display = build_display_name(run_name, config)
 
     return RunData(
         id=run_id,
-        name=raw.get("name", ""),
+        name=display,
         url=f"{base_url}/index.php?/runs/view/{run_id}",
         is_completed=raw.get("is_completed", False),
         country=parsed["country"],
@@ -96,8 +101,8 @@ def fetch_plan(
 ) -> PlanData:
     """Fetch a plan and all its runs, aggregating status counts.
 
-    If bu_code is provided, only runs belonging to that BU are included.
-    This handles shared plans (e.g., Eastern Europe plan with WTR + DRG runs).
+    Uses the run's `config` field (e.g. "France, Desktop") as primary source
+    for country/platform extraction.
     """
     raw = client.get_plan(plan_id)
     plan_name = raw.get("name", "")
@@ -107,22 +112,23 @@ def fetch_plan(
     aggregated = StatusCounts()
 
     for entry in entries:
-        for run_raw in entry.get("runs", []):
-            run_name = run_raw.get("name", "")
+        entry_name = entry.get("name", "")
 
-            # If BU code set, skip runs that don't belong to this BU
-            if bu_code and not run_belongs_to_bu(run_name, bu_code):
-                logger.debug("Skipping run '%s' (not BU %s)", run_name, bu_code)
-                continue
+        for run_raw in entry.get("runs", []):
+            run_name = run_raw.get("name", "") or entry_name
+            config = run_raw.get("config", "") or ""
 
             rid = run_raw["id"]
             tests = client.get_tests(rid)
             counts = _count_statuses(tests)
-            parsed = parse_run_name(run_name, bu_code, known_countries)
+            parsed = parse_run_name(run_name, bu_code, known_countries, config=config)
+
+            # Build a clear display name using config
+            display = build_display_name(entry_name or run_name, config)
 
             run = RunData(
                 id=rid,
-                name=run_name,
+                name=display,
                 url=f"{base_url}/index.php?/runs/view/{rid}",
                 is_completed=run_raw.get("is_completed", False),
                 country=parsed["country"],
@@ -152,21 +158,15 @@ def discover_plans_for_bu(
     smoke_keywords: list[str],
     lookback_days: int,
 ) -> list[dict]:
-    """Find recent plans that belong to a BU and match regression/smoke keywords.
-
-    Returns raw plan dicts from the API with an extra 'plan_type' field.
-    """
+    """Find recent plans that belong to a BU and match regression/smoke keywords."""
     all_plans = client.get_plans(project_id)
     matched: list[dict] = []
 
     for plan in all_plans:
         name = plan.get("name", "")
 
-        # Filter by BU — but allow shared plans (e.g. "EE" Eastern Europe)
-        # that might not mention the BU code in the plan name.
-        # We'll still filter at the run level inside fetch_plan().
+        # Filter by BU — but allow shared/umbrella plans
         bu_match = plan_belongs_to_bu(name, bu_code)
-        # Check for shared/umbrella plans (no specific BU code in name)
         is_shared = not any(
             f"[{code}]" in name.upper() or code in name.upper()
             for code in _all_bu_codes()
@@ -182,14 +182,12 @@ def discover_plans_for_bu(
         # Classify plan type
         if is_regression_plan(name, regression_keywords):
             plan["plan_type"] = "regression"
-            matched.append(plan)
         elif is_smoke_plan(name, smoke_keywords):
             plan["plan_type"] = "smoke"
-            matched.append(plan)
         else:
-            # Include unclassified plans too — user might want them
             plan["plan_type"] = "other"
-            matched.append(plan)
+
+        matched.append(plan)
 
     logger.info(
         "Found %d plans for BU '%s' in project %d (last %d days)",
@@ -198,13 +196,10 @@ def discover_plans_for_bu(
     return matched
 
 
-# ── Run aggregation (grouped) ──────────────────────────────────────────────
+# ── Run aggregation ────────────────────────────────────────────────────────
 
 def aggregate_runs(runs: list[RunData]) -> dict:
-    """Group runs into nested dict: country → platform → type → stats.
-
-    If multiple runs exist for the same group, counts are summed.
-    """
+    """Group runs: country → platform → type → stats."""
     grouped: dict = {}
 
     for run in runs:
@@ -238,7 +233,6 @@ def aggregate_runs(runs: list[RunData]) -> dict:
             grp["total"] += run.counts.total
             grp["runs"].append(run)
 
-            # Recompute derived values
             total = grp["total"]
             executed = total - grp["untested"]
             grp["progress"] = (executed / total * 100) if total else 0.0

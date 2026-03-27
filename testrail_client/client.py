@@ -112,3 +112,11 @@ class TestRailClient:
     def get_results_for_run(self, run_id: int) -> list[dict]:
         """Fetch all test results for a run (paginated)."""
         return self._get_paginated(f"get_results_for_run/{run_id}")
+
+    def get_case_fields(self) -> list[dict]:
+        """Fetch all case field definitions (includes custom fields with options)."""
+        return self._get("get_case_fields")
+
+    def get_statuses(self) -> list[dict]:
+        """Fetch all test status definitions (built-in + custom)."""
+        return self._get("get_statuses")
