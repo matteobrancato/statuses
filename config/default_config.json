@@ -1,0 +1,33 @@
+{
+  "business_units": {
+    "TPSGB": {
+      "project_id": 12,
+      "suite_id": 101,
+      "countries": ["UK"],
+      "platforms": ["desktop", "mobile"],
+      "regression_priorities": ["high", "highest"],
+      "run_name_patterns": {
+        "country": "\\[(.*?)\\]",
+        "platform": "(Desktop|Mobile)",
+        "type": "(Manual|Automated)"
+      }
+    }
+  },
+  "regression_keywords": ["Regression", "NR", "On Demand"],
+  "regression_lookback_days": 14,
+  "status_map": {
+    "1": {"label": "Passed", "color": "#4CAF50"},
+    "2": {"label": "Blocked", "color": "#9C27B0"},
+    "3": {"label": "Untested", "color": "#9E9E9E"},
+    "4": {"label": "Retest", "color": "#FF9800"},
+    "5": {"label": "Failed", "color": "#F44336"},
+    "6": {"label": "Custom 1", "color": "#00BCD4"},
+    "7": {"label": "Custom 2", "color": "#795548"},
+    "8": {"label": "Custom 3", "color": "#607D8B"}
+  },
+  "automation_type_map": {
+    "automated": "java",
+    "testim_desktop": "testim_desktop",
+    "testim_mobile": "testim_mobile"
+  }
+}
