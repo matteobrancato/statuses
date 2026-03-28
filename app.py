@@ -156,6 +156,16 @@ def render_coverage(cov: dict) -> None:
         b2.metric("Testim Desktop", bd.get("testim_desktop", 0))
         b3.metric("Testim Mobile", bd.get("testim_mobile", 0))
 
+    bl = cov.get("automation_backlog", {})
+    if bl and bl.get("total", 0) > 0:
+        st.markdown('<p class="section-header">Automation Backlog</p>', unsafe_allow_html=True)
+        st.caption("Cases marked as *Ready to be automated*")
+        l1, l2, l3, l4 = st.columns(4)
+        l1.metric("Total Backlog", f"{bl.get('total', 0):,}")
+        l2.metric("Java", bl.get("java", 0))
+        l3.metric("Testim Desktop", bl.get("testim_desktop", 0))
+        l4.metric("Testim Mobile", bl.get("testim_mobile", 0))
+
     auto = cov["automated_total"]
     manual = cov["total"] - auto
     if cov["total"] > 0:

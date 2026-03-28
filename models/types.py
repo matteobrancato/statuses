@@ -93,16 +93,31 @@ class AutomationBreakdown:
 
 
 @dataclass
+class AutomationBacklog:
+    """Breakdown of 'ready to be automated' cases by field type."""
+    java: int = 0
+    testim_desktop: int = 0
+    testim_mobile: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.java + self.testim_desktop + self.testim_mobile
+
+
+@dataclass
 class CoverageData:
     """Baseline coverage information."""
     total: int = 0
     regression: int = 0
     automated_total: int = 0
     automation_breakdown: AutomationBreakdown = field(default_factory=AutomationBreakdown)
+    automation_backlog: AutomationBacklog = field(default_factory=AutomationBacklog)
 
     @property
     def coverage_pct(self) -> float:
-        return (self.automated_total / self.regression * 100) if self.regression else 0.0
+        """Automation % over regression cases (or total if no regression filter)."""
+        denominator = self.regression if self.regression else self.total
+        return (self.automated_total / denominator * 100) if denominator else 0.0
 
 
 @dataclass

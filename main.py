@@ -134,6 +134,12 @@ def get_regression_dashboard(
                 "testim_desktop": coverage.automation_breakdown.testim_desktop,
                 "testim_mobile": coverage.automation_breakdown.testim_mobile,
             },
+            "automation_backlog": {
+                "java": coverage.automation_backlog.java,
+                "testim_desktop": coverage.automation_backlog.testim_desktop,
+                "testim_mobile": coverage.automation_backlog.testim_mobile,
+                "total": coverage.automation_backlog.total,
+            },
             "coverage_pct": coverage.coverage_pct,
         },
         "plans": plan_results,
